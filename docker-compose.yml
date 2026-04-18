@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: tellm-db
+    environment:
+      POSTGRES_DB: tellm
+      POSTGRES_USER: tellm
+      POSTGRES_PASSWORD: tellm_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tellm -d tellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tellm-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: tellm-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tellm-net
+
+  api:
+    build:
+      context: ./apps/api
+    container_name: tellm-api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://tellm:tellm_dev@postgres:5432/tellm
+      - REDIS_URL=redis://redis:6379/0
+      - ANTHROPIC_API_KEY=dummy_key_for_testing
+      - JWT_SECRET=dummy_secret_for_testing
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tellm-net
+
+  web:
+    build:
+      context: ./apps/web
+    container_name: tellm-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - api
+    networks:
+      - tellm-net
+
+volumes:
+  postgres_data:
+
+networks:
+  tellm-net:

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Pendulum — TeLLM Sim</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas { display: block; flex: 1; }
+    #controls {
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .ctrl-group { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    label { color: #8b949e; white-space: nowrap; }
+    input[type=range] { width: 90px; accent-color: #58a6ff; }
+    .val { color: #58a6ff; min-width: 42px; text-align: right; font-weight: 600; }
+    #reset-btn {
+      margin-left: auto;
+      background: #1f6feb;
+      border: none; color: #fff;
+      padding: 6px 20px; border-radius: 6px;
+      font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: background 0.2s;
+    }
+    #reset-btn:hover { background: #388bfd; }
+    #readouts {
+      position: absolute; top: 12px; right: 14px;
+      background: rgba(22,27,34,0.88);
+      border: 1px solid #30363d;
+      border-radius: 8px; padding: 10px 14px;
+      font-size: 13px; line-height: 1.9;
+      backdrop-filter: blur(4px);
+    }
+    .r-label { color: #8b949e; }
+    .r-val   { color: #f0883e; font-weight: 700; }
+  </style>
+</head>
+<body>
+<div id="readouts">
+  <div><span class="r-label">Angle: </span><span class="r-val" id="r-angle">30.00°</span></div>
+  <div><span class="r-label">Period (theory): </span><span class="r-val" id="r-period">--</span></div>
+  <div><span class="r-label">Angular vel: </span><span class="r-val" id="r-omega">0.00 rad/s</span></div>
+  <div><span class="r-label">Energy: </span><span class="r-val" id="r-energy">-- J</span></div>
+</div>
+
+<canvas id="c"></canvas>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <label>Length (m)</label>
+    <input type="range" id="len" min="0.2" max="3" step="0.1" value="1"/>
+    <span class="val" id="len-v">1.0 m</span>
+  </div>
+  <div class="ctrl-group">
+    <label>Init angle</label>
+    <input type="range" id="ang" min="5" max="80" step="1" value="30"/>
+    <span class="val" id="ang-v">30°</span>
+  </div>
+  <div class="ctrl-group">
+    <label>Damping</label>
+    <input type="range" id="damp" min="0" max="0.2" step="0.005" value="0.02"/>
+    <span class="val" id="damp-v">0.02</span>
+  </div>
+  <button id="reset-btn">↺ Reset</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const qp = new URLSearchParams(location.search);
+let LEN   = parseFloat(qp.get('length_m') ?? 1.0);
+let G     = parseFloat(qp.get('gravity_ms2') ?? 9.8);
+let INIT_ANGLE = parseFloat(qp.get('initial_angle_deg') ?? 30);
+let DAMP  = 0.02;  // damping coefficient (b/m)
+
+// Sync sliders
+const lenSlider  = document.getElementById('len');
+const angSlider  = document.getElementById('ang');
+const dampSlider = document.getElementById('damp');
+lenSlider.value = LEN; angSlider.value = INIT_ANGLE; dampSlider.value = DAMP;
+document.getElementById('len-v').textContent  = LEN + ' m';
+document.getElementById('ang-v').textContent  = INIT_ANGLE + '°';
+document.getElementById('damp-v').textContent = DAMP;
+
+lenSlider.oninput  = e => { LEN  = +e.target.value; document.getElementById('len-v').textContent  = LEN + ' m'; resetSim(); };
+angSlider.oninput  = e => { INIT_ANGLE = +e.target.value; document.getElementById('ang-v').textContent  = INIT_ANGLE + '°'; resetSim(); };
+dampSlider.oninput = e => { DAMP = +e.target.value; document.getElementById('damp-v').textContent = DAMP; };
+
+// Three.js scene
+const canvas   = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+
+const scene    = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+
+const camera   = new THREE.OrthographicCamera(-4, 4, 4, -4, -10, 10);
+
+function resize() {
+  const w = window.innerWidth;
+  const h = window.innerHeight - 50;
+  renderer.setSize(w, h);
+  const aspect = w / h;
+  camera.left  = -3.5 * aspect;
+  camera.right =  3.5 * aspect;
+  camera.top   =  4;
+  camera.bottom = -4;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Pivot marker
+const pivotGeo = new THREE.CircleGeometry(0.06, 20);
+const pivotMat = new THREE.MeshBasicMaterial({ color: 0x8b949e });
+const pivotMesh = new THREE.Mesh(pivotGeo, pivotMat);
+pivotMesh.position.set(0, 2, 0);
+scene.add(pivotMesh);
+
+// Rod
+const rodPositions = new Float32Array(6);
+const rodGeo = new THREE.BufferGeometry();
+rodGeo.setAttribute('position', new THREE.BufferAttribute(rodPositions, 3));
+const rodLine = new THREE.Line(rodGeo, new THREE.LineBasicMaterial({ color: 0x58a6ff, linewidth: 2 }));
+scene.add(rodLine);
+
+// Bob
+const bobGeo  = new THREE.CircleGeometry(0.18, 32);
+const bobMat  = new THREE.MeshBasicMaterial({ color: 0xf0883e });
+const bobMesh = new THREE.Mesh(bobGeo, bobMat);
+scene.add(bobMesh);
+
+// Trail (arc ghost)
+const TRAIL_LEN = 120;
+const trailPts  = new Float32Array(TRAIL_LEN * 3);
+const trailGeo  = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPts, 3));
+trailGeo.setDrawRange(0, 0);
+const trailLine = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({ color: 0x3fb950, transparent: true, opacity: 0.4 }));
+scene.add(trailLine);
+
+// Pendulum physics state
+let theta, omega, trailIdx, trailFull;
+const PIVOT = new THREE.Vector3(0, 2, 0);
+
+function resetSim() {
+  theta    = INIT_ANGLE * Math.PI / 180;
+  omega    = 0;
+  trailIdx = 0;
+  trailFull = false;
+  trailGeo.setDrawRange(0, 0);
+}
+resetSim();
+
+document.getElementById('reset-btn').addEventListener('click', resetSim);
+
+// Readouts
+const rAngle  = document.getElementById('r-angle');
+const rPeriod = document.getElementById('r-period');
+const rOmega  = document.getElementById('r-omega');
+const rEnergy = document.getElementById('r-energy');
+
+const DT = 1 / 120;
+let lastStamp = null;
+
+function animate(stamp) {
+  requestAnimationFrame(animate);
+  const dt = lastStamp ? Math.min((stamp - lastStamp) / 1000, 0.05) : DT;
+  lastStamp = stamp;
+
+  // RK4 pendulum: theta'' = -(g/L)*sin(theta) - damp*theta'
+  function deriv(th, om) {
+    return [om, -(G / LEN) * Math.sin(th) - DAMP * om];
+  }
+  const [dth1, dom1] = deriv(theta, omega);
+  const [dth2, dom2] = deriv(theta + 0.5*dt*dth1, omega + 0.5*dt*dom1);
+  const [dth3, dom3] = deriv(theta + 0.5*dt*dth2, omega + 0.5*dt*dom2);
+  const [dth4, dom4] = deriv(theta + dt*dth3, omega + dt*dom3);
+  theta += (dt/6) * (dth1 + 2*dth2 + 2*dth3 + dth4);
+  omega += (dt/6) * (dom1 + 2*dom2 + 2*dom3 + dom4);
+
+  // Bob position
+  const bx = PIVOT.x + LEN * Math.sin(theta);
+  const by = PIVOT.y - LEN * Math.cos(theta);
+  bobMesh.position.set(bx, by, 0);
+
+  // Rod
+  const rp = rodGeo.attributes.position;
+  rp.setXYZ(0, PIVOT.x, PIVOT.y, 0);
+  rp.setXYZ(1, bx, by, 0);
+  rp.needsUpdate = true;
+  rodGeo.computeBoundingSphere();
+
+  // Trail
+  const tp = trailGeo.attributes.position;
+  tp.setXYZ(trailIdx, bx, by, 0);
+  tp.needsUpdate = true;
+  trailIdx = (trailIdx + 1) % TRAIL_LEN;
+  if (!trailFull && trailIdx === 0) trailFull = true;
+  trailGeo.setDrawRange(0, trailFull ? TRAIL_LEN : trailIdx);
+
+  // Energy: KE + PE (relative to lowest point)
+  const h    = LEN - LEN * Math.cos(theta);
+  const v    = LEN * omega;
+  const KE   = 0.5 * v * v;                 // per unit mass
+  const PE   = G * h;
+  const Etot = KE + PE;
+
+  rAngle.textContent  = (theta * 180 / Math.PI).toFixed(2) + '°';
+  rPeriod.textContent = (2 * Math.PI * Math.sqrt(LEN / G)).toFixed(3) + ' s';
+  rOmega.textContent  = omega.toFixed(3) + ' rad/s';
+  rEnergy.textContent = Etot.toFixed(3) + ' J/kg';
+
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
