@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Wave Superposition — TeLLM Sim</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas { display: block; flex: 1; }
+    #controls {
+      background: #161b22;
+      border-top: 1px solid #30363d;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .ctrl-group { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    label { color: #8b949e; white-space: nowrap; }
+    input[type=range] { width: 90px; accent-color: #58a6ff; }
+    .val { color: #58a6ff; min-width: 40px; text-align: right; font-weight: 600; }
+
+    #legend {
+      position: absolute; top: 12px; right: 14px;
+      background: rgba(22,27,34,0.88);
+      border: 1px solid #30363d;
+      border-radius: 8px; padding: 10px 14px;
+      font-size: 13px; line-height: 2;
+      backdrop-filter: blur(4px);
+    }
+    .leg { display: flex; align-items: center; gap: 8px; }
+    .dot { width: 14px; height: 3px; border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<div id="legend">
+  <div class="leg"><div class="dot" style="background:#58a6ff"></div> Wave 1</div>
+  <div class="leg"><div class="dot" style="background:#f0883e"></div> Wave 2</div>
+  <div class="leg"><div class="dot" style="background:#3fb950; height:4px"></div> Superposition</div>
+  <div style="margin-top:6px; font-size:12px; color:#8b949e" id="beat-note"></div>
+</div>
+
+<canvas id="c"></canvas>
+
+<div id="controls">
+  <div class="ctrl-group">
+    <label>f₁ (Hz)</label>
+    <input type="range" id="f1" min="0.5" max="8" step="0.5" value="2"/>
+    <span class="val" id="f1-v">2 Hz</span>
+  </div>
+  <div class="ctrl-group">
+    <label>f₂ (Hz)</label>
+    <input type="range" id="f2" min="0.5" max="8" step="0.5" value="3"/>
+    <span class="val" id="f2-v">3 Hz</span>
+  </div>
+  <div class="ctrl-group">
+    <label>Amplitude</label>
+    <input type="range" id="amp" min="0.1" max="2" step="0.1" value="1"/>
+    <span class="val" id="amp-v">1.0</span>
+  </div>
+  <div class="ctrl-group">
+    <label>Speed</label>
+    <input type="range" id="spd" min="0.1" max="3" step="0.1" value="1"/>
+    <span class="val" id="spd-v">1×</span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const qp = new URLSearchParams(location.search);
+let F1  = parseFloat(qp.get('freq1_hz')  ?? 2);
+let F2  = parseFloat(qp.get('freq2_hz')  ?? 3);
+let AMP = parseFloat(qp.get('amplitude') ?? 1);
+let SPD = 1.0;
+
+// Sliders
+const f1s = document.getElementById('f1'); f1s.value = F1;
+const f2s = document.getElementById('f2'); f2s.value = F2;
+const amps = document.getElementById('amp'); amps.value = AMP;
+const spds = document.getElementById('spd');
+
+f1s.oninput  = e => { F1 = +e.target.value;  document.getElementById('f1-v').textContent = F1 + ' Hz'; };
+f2s.oninput  = e => { F2 = +e.target.value;  document.getElementById('f2-v').textContent = F2 + ' Hz'; };
+amps.oninput = e => { AMP = +e.target.value; document.getElementById('amp-v').textContent = AMP.toFixed(1); };
+spds.oninput = e => { SPD = +e.target.value; document.getElementById('spd-v').textContent = SPD + '×'; };
+
+document.getElementById('f1-v').textContent  = F1 + ' Hz';
+document.getElementById('f2-v').textContent  = F2 + ' Hz';
+document.getElementById('amp-v').textContent = AMP.toFixed(1);
+document.getElementById('spd-v').textContent = SPD + '×';
+
+// Three.js
+const canvas   = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+
+const camera = new THREE.OrthographicCamera(-6.5, 6.5, 3.5, -3.5, -10, 10);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight - 50;
+  renderer.setSize(w, h);
+  const asp = w / h;
+  camera.left  = -6.5 * asp / (16/9);
+  camera.right =  6.5 * asp / (16/9);
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Helper to update a line of N points
+const N = 400;   // samples across x-axis
+const X_MIN = -6, X_MAX = 6;
+
+function makeWaveLine(color) {
+  const pos = new Float32Array(N * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+  return { geo, pos };
+}
+
+const wave1 = makeWaveLine(0x58a6ff);
+const wave2 = makeWaveLine(0xf0883e);
+
+// Superposition line — thicker via two overlapping lines
+const superA = makeWaveLine(0x3fb950);
+const superB = makeWaveLine(0x3fb950);
+
+// y-offset so the three waves are stacked vertically
+const Y_OFFSETS = { w1: 2, w2: 0, sup: -2 };
+
+// Axis labels (simple grid lines for reference)
+[-4,-2,0,2,4].forEach(y => {
+  const g = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(X_MIN, y * 0.1, -0.5),
+    new THREE.Vector3(X_MAX, y * 0.1, -0.5)
+  ]);
+  scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x1f2937 })));
+});
+
+// Zero lines for each wave lane
+[Y_OFFSETS.w1, Y_OFFSETS.w2, Y_OFFSETS.sup].forEach(yo => {
+  const g = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(X_MIN, yo, -0.5),
+    new THREE.Vector3(X_MAX, yo, -0.5)
+  ]);
+  scene.add(new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x30363d })));
+});
+
+let elapsed = 0;
+let lastStamp = null;
+
+function updateLine({ pos, geo }, yFunc) {
+  for (let i = 0; i < N; i++) {
+    const x = X_MIN + (X_MAX - X_MIN) * (i / (N - 1));
+    pos[i * 3]     = x;
+    pos[i * 3 + 1] = yFunc(x);
+    pos[i * 3 + 2] = 0;
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.computeBoundingSphere();
+}
+
+const beatNote = document.getElementById('beat-note');
+
+function animate(stamp) {
+  requestAnimationFrame(animate);
+  const dt = lastStamp ? Math.min((stamp - lastStamp) / 1000, 0.05) : 1/60;
+  lastStamp = stamp;
+  elapsed += dt * SPD;
+
+  const k = 1.2;   // spatial frequency scaling
+  const w1 = 2 * Math.PI * F1;
+  const w2 = 2 * Math.PI * F2;
+
+  updateLine(wave1, x => Y_OFFSETS.w1 + AMP * 0.7 * Math.sin(k * x - w1 * elapsed));
+  updateLine(wave2, x => Y_OFFSETS.w2 + AMP * 0.7 * Math.sin(k * x - w2 * elapsed));
+  updateLine(superA, x =>
+    Y_OFFSETS.sup +
+    AMP * 0.7 * Math.sin(k * x - w1 * elapsed) +
+    AMP * 0.7 * Math.sin(k * x - w2 * elapsed)
+  );
+  updateLine(superB, x =>
+    Y_OFFSETS.sup +
+    AMP * 0.7 * Math.sin(k * x - w1 * elapsed) +
+    AMP * 0.7 * Math.sin(k * x - w2 * elapsed)
+  );
+
+  // Beat frequency note
+  const beatF = Math.abs(F1 - F2);
+  beatNote.textContent = `Beat freq: ${beatF.toFixed(1)} Hz`;
+
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
