@@ -79,9 +79,10 @@ export async function POST(req: NextRequest) {
                   data.content = data.content.replace(/\[SIM:[^\]]+\]/g, '');
                 }
 
-                if (data.content || data.sim_event || data.error) {
+                if (data.content || data.sim_event || data.sources || data.error) {
                   await writer.write(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
                 }
+
               } catch (e) {
                 // If it's not JSON, just pass it through as is (unlikely for our SSE setup)
                 await writer.write(encoder.encode(`${line}\n\n`));

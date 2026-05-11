@@ -55,7 +55,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('subject_id', sa.UUID(), nullable=False),
     sa.Column('chunk_text', sa.Text(), nullable=False),
-    sa.Column('embedding', pgvector.sqlalchemy.vector.VECTOR(dim=1536), nullable=False),
+    sa.Column('embedding', pgvector.sqlalchemy.vector.VECTOR(dim=384), nullable=False),
     sa.Column('chapter', sa.String(), nullable=False),
     sa.Column('page_ref', sa.Integer(), nullable=True),
     sa.ForeignKeyConstraint(['subject_id'], ['subjects.id'], ),

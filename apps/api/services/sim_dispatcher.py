@@ -32,41 +32,30 @@ TEMPLATE_REGISTRY = {
 }
 
 
+from llm_client import chat
+
+# ... keep TEMPLATE_REGISTRY exactly as before ...
+
 async def dispatch(concept: str) -> dict | None:
-    """
-    1. Score each template by keyword overlap with concept string.
-    2. If best score >= 1, return that template key + defaults.
-    3. Otherwise call LLM to pick closest template key.
-    4. Return {"template": key, "params": defaults} or None if no match.
-    """
     concept_lower = concept.lower()
     scores = {
         key: sum(1 for kw in data["keywords"] if kw in concept_lower)
         for key, data in TEMPLATE_REGISTRY.items()
     }
     best_key = max(scores, key=scores.get)
-
     if scores[best_key] >= 1:
-        return {
-            "template": best_key,
-            "params": TEMPLATE_REGISTRY[best_key]["defaults"]
-        }
+        return {"template": best_key, "params": TEMPLATE_REGISTRY[best_key]["defaults"]}
 
-    # LLM fallback — only fires when zero keywords matched
-    import anthropic
-    from config import settings
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+    # LLM fallback — still free, uses Ollama
     keys_list = ", ".join(TEMPLATE_REGISTRY.keys())
-    response = client.messages.create(
-        model=settings.llm_model,
-        max_tokens=20,
+    response = chat(
         messages=[{"role": "user", "content":
-            f"Which simulation template best matches this physics concept: '{concept}'?\n"
-            f"Available templates: {keys_list}\n"
-            f"Respond with ONLY the template key, exactly as written. "
-            f"If none match, respond: none"}]
+            f"Which simulation template best matches: '{concept}'?\n"
+            f"Options: {keys_list}\n"
+            f"Reply with ONLY the key, or 'none' if nothing fits."}],
+        max_tokens=15
     )
-    key = response.content[0].text.strip()
+    key = response.choices[0].message.content.strip()
     if key in TEMPLATE_REGISTRY:
         return {"template": key, "params": TEMPLATE_REGISTRY[key]["defaults"]}
     return None

@@ -62,22 +62,27 @@ async def chat_message(req: MessageRequest, token: str = Depends(oauth2_scheme))
 
     # 4. Handle based on intent and stream response
     async def process_intent():
-        if intent == "HOMEWORK":
-            return respond(sanitized_content, history, req.hint_level, req.subject_id, "")
-        elif intent == "CONCEPTUAL":
-            context = await get_context(sanitized_content, req.subject_id)
-            return explain(sanitized_content, context, req.subject_id)
-        elif intent == "CLARIFY":
-            return respond(sanitized_content, history, req.hint_level, req.subject_id, "")
+        sources = []
+        if intent in ["HOMEWORK", "CONCEPTUAL", "CLARIFY"]:
+            context, sources = await get_context(sanitized_content, req.subject_id)
+            if intent == "CONCEPTUAL":
+                return explain(sanitized_content, context, req.subject_id), sources
+            else:
+                return respond(sanitized_content, history, req.hint_level, req.subject_id, context), sources
         else:
             async def offtopic_gen():
                 yield "I am your TeLLM tutor. Let's stay focused on your subjects!"
-            return offtopic_gen()
+            return offtopic_gen(), []
+
 
     async def sse_generator():
         try:
-            generator = await process_intent()
+            generator, sources = await process_intent()
             
+            # Emit sources early
+            if sources:
+                yield f"data: {json.dumps({'sources': sources})}\n\n"
+
             # Emit simulator metadata if conceptual
             if intent == "CONCEPTUAL":
                 sim_data = await dispatch(sanitized_content)

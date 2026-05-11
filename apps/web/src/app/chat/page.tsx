@@ -7,12 +7,14 @@ import {
   History, 
   User, 
   Bot, 
-  ChevronRight, 
+   ChevronRight, 
   Sparkles,
   RefreshCw,
   LogOut,
-  AlertCircle
+  AlertCircle,
+  BookOpen
 } from 'lucide-react';
+
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -34,8 +36,10 @@ interface Message {
   role: 'student' | 'assistant';
   content: string;
   sim_event?: SimEvent;
+  sources?: string[];
   timestamp: Date;
 }
+
 
 interface Session {
   id: string;
@@ -49,7 +53,9 @@ export default function ChatPage() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [hintLevel, setHintLevel] = useState(1);
   const [currentSubject, setCurrentSubject] = useState('Physics Class 11');
+  const [curriculumSources, setCurriculumSources] = useState<string[]>([]);
   const [sessions, setSessions] = useState<Session[]>([
+
     { id: '1', subject: 'Physics Class 11', lastMessage: 'Understanding Projectile Motion...' },
     { id: '2', subject: 'Computer Science', lastMessage: 'Explain Recursion clearly.' }
   ]);
@@ -59,6 +65,22 @@ export default function ChatPage() {
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  useEffect(() => {
+    const fetchSources = async () => {
+      try {
+        const response = await fetch('/api/curriculum/sources', {
+          headers: { 'Authorization': 'Bearer placeholder-token' }
+        });
+        const data = await response.json();
+        if (data.sources) setCurriculumSources(data.sources);
+      } catch (e) {
+        console.error('Failed to fetch sources', e);
+      }
+    };
+    fetchSources();
+  }, []);
+
 
   useEffect(() => {
     scrollToBottom();
@@ -137,7 +159,14 @@ export default function ChatPage() {
                 setHintLevel(data.hint_level);
               }
 
+              if (data.sources) {
+                setMessages(prev => prev.map(m => 
+                  m.id === assistantMsgId ? { ...m, sources: data.sources } : m
+                ));
+              }
+
               if (data.error) {
+
                 setMessages(prev => prev.map(m => 
                   m.id === assistantMsgId ? { ...m, content: data.error } : m
                 ));
@@ -202,6 +231,26 @@ export default function ChatPage() {
             </button>
           ))}
         </div>
+
+        <div className="px-8 mt-8 space-y-2">
+          <div className="flex items-center gap-2 text-slate-500 text-[10px] uppercase tracking-widest font-bold mb-3">
+            <AlertCircle className="w-3.5 h-3.5" />
+            Source Data (RAG)
+          </div>
+          {curriculumSources.length > 0 ? (
+            <div className="space-y-2">
+              {curriculumSources.map(source => (
+                <div key={source} className="flex items-center gap-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/10 text-xs text-slate-400">
+                  <BookOpen className="w-4 h-4 text-blue-500" />
+                  <span className="truncate">{source}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-600 italic px-2">No curriculum data loaded yet.</p>
+          )}
+        </div>
+
 
         <div className="p-6 border-t border-slate-800">
           <HintLevelBar level={hintLevel} />
@@ -298,7 +347,22 @@ export default function ChatPage() {
                       <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]" />
                     </div>
                   ))}
+                  
+                  {message.sources && message.sources.length > 0 && (
+                    <div className="mt-4 pt-3 border-t border-slate-800">
+                      <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2">Sources</p>
+                      <div className="flex flex-wrap gap-2">
+                        {message.sources.map(source => (
+                          <span key={source} className="flex items-center gap-1.5 px-2 py-1 bg-slate-800 rounded-md text-[10px] text-blue-400 border border-slate-700">
+                            <BookOpen className="w-3 h-3" />
+                            {source}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
+
 
                 {message.sim_event && (
                   <div className="w-full mt-4">
