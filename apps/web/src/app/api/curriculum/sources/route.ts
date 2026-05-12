@@ -11,8 +11,10 @@ export async function GET(req: NextRequest) {
 
     if (!backendRes.ok) {
       const error = await backendRes.text();
+      console.error('Curriculum sources backend error:', error);
       return NextResponse.json({ error }, { status: backendRes.status });
     }
+
 
     const data = await backendRes.json();
     return NextResponse.json(data);

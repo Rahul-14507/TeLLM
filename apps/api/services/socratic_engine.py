@@ -50,18 +50,22 @@ async def respond(message: str, history: list, hint_level: int,
 
 async def explain(message: str, context: str, subject: str):
     system = f"""You are TeLLM, an AI tutor for {subject}.
-Explain the concept strictly using the provided Curriculum Context. 
-Your goal is to summarize the context for the student while remaining helpful and encouraging.
+Your goal is to provide a high-fidelity explanation based EXCLUSIVELY on the provided Curriculum Context.
 
-Structure your response in 2-3 short paragraphs. 
-Always include a direct quote or a specific detail from the context to show its reliability.
+RULES:
+1. If the answer is in the context, provide the EXACT relevant passage or a very close paraphrase that preserves all technical details.
+2. Do NOT omit important context (e.g., historical background, discovery of particles, specific conditions).
+3. Start directly with the answer. No "Based on the curriculum..." or "The textbook states...".
+4. If the information is missing from the context, admit it.
 
 Curriculum Context:
-{context[:1500]}
+{context[:2500]}
 
-Max 180 words. Never use jargon without defining it."""
+Max 250 words."""
 
     stream = chat(
+
+
         messages=[{"role": "user", "content": message}],
         system=system,
         stream=True,

@@ -120,8 +120,9 @@ export default function ChatPage() {
         body: JSON.stringify({
           session_id: 'current-session',
           content: inputValue,
-          subject_id: 'physics-101'
+          subject_id: 'b9ed15a6-6709-4f1a-9bf0-059c92adfee9'
         })
+
       });
 
       if (!response.body) throw new Error('No body');

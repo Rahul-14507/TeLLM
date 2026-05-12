@@ -53,7 +53,8 @@ async def ingest_curriculum(pdf_path: str, subject_id: str, chapter: str):
         if os.path.exists(pdf_path):
             os.remove(pdf_path)
 
-async def get_context(query: str, subject_id: str, top_k: int = 3) -> tuple[str, list[str]]:
+async def get_context(query: str, subject_id: str, top_k: int = 5) -> tuple[str, list[str]]:
+
     query_hash = hashlib.md5(query.encode('utf-8')).hexdigest()
     cache_key = f"rag:{subject_id}:{query_hash}"
     
